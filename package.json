@@ -1,0 +1,9 @@
+{
+  "name": "bpk-pickup-board",
+  "private": true,
+  "type": "module",
+  "description": "BP Kids pickup board: Planning Center checkouts pop up on each room's tablet.",
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0"
+  }
+}
