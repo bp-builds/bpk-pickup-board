@@ -63,12 +63,22 @@
   .tab.on { background: var(--bp-midnight); color: #fff; border-color: var(--bp-midnight); }
   .tab.admin-tab.on { background: var(--bp-blue); border-color: var(--bp-blue); }
 
+  /* Room list sub-tabs (Checked In / Check Out) */
+  .subtabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  .subtab { border: 1px solid var(--line); background: var(--card); border-radius: 12px; padding: 12px 18px; font-size: 16px; font-weight: 800; color: var(--ink); }
+  .subtab.on { background: var(--bp-midnight); color: #fff; border-color: var(--bp-midnight); }
+  .subtab .n { display: inline-block; min-width: 26px; text-align: center; background: var(--wait-bg); color: var(--bp-blue); border-radius: 999px; padding: 2px 8px; font-size: 14px; margin-left: 6px; }
+  .subtab.on .n { background: rgba(255,255,255,.18); color: #fff; }
+  .subtab.alert .n { background: var(--danger); color: #fff; }
+
   /* Room board */
   .empty { background: var(--card); border: 1px dashed #c3c5d4; border-radius: var(--radius); padding: 48px 20px; text-align: center; color: var(--muted); font-size: 18px; }
   .cards { display: grid; gap: 14px; }
   .pick { background: var(--card); border: 2px solid var(--bp-blue); border-left-width: 10px; border-radius: var(--radius); padding: 20px 22px; display: grid; grid-template-columns: 1fr auto; gap: 8px 20px; align-items: center; box-shadow: 0 6px 18px rgba(33,33,249,.10); }
   .pick.fresh { animation: pulse 1.2s ease-in-out 4; }
   @keyframes pulse { 50% { box-shadow: 0 0 0 10px rgba(33,33,249,.20); } }
+  .pick.in-room { border-color: var(--line); border-left-color: var(--ok); box-shadow: none; }
+  .pick.in-room .label { color: var(--ok); }
   .pick .label { font-size: 12px; font-weight: 800; color: var(--bp-blue); text-transform: uppercase; letter-spacing: .14em; }
   .pick .name { font-size: 36px; font-weight: 800; line-height: 1.1; letter-spacing: -.02em; color: var(--bp-midnight); }
   .pick .meta { color: var(--muted); font-size: 15px; }
@@ -94,7 +104,7 @@
   .done-row .t { color: var(--muted); white-space: nowrap; }
 
   /* Overview */
-  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 16px; }
   .stat { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
   .stat .n { font-size: 32px; font-weight: 800; color: var(--bp-midnight); }
   .stat .l { color: var(--muted); font-size: 13px; }
@@ -231,6 +241,7 @@
   // ---------- state ----------
   let data = null, lastError = "", started = false, timer = null;
   let seenWaiting = new Set(), freshIds = new Set(), lastChime = 0, filter = "all";
+  let listTab = "checkedin"; // room view: "checkedin" | "checkout"
   const pending = new Set();
 
   async function poll() {
@@ -249,7 +260,7 @@
   }
 
   function handleNew() {
-    const waiting = data.pickups.filter((p) => !p.confirmedAt);
+    const waiting = (data.pickups || []).filter((p) => !p.confirmedAt);
     const ids = new Set(waiting.map((p) => p.id));
     const firstLoad = seenWaiting.size === 0 && !handleNew.ran;
     handleNew.ran = true;
@@ -257,6 +268,8 @@
     if (view === "room") {
       if (freshIds.size && !firstLoad) { chime(); lastChime = Date.now(); }
       else if (ids.size && Date.now() - lastChime > RECHIME_MS) { chime(); lastChime = Date.now(); }
+      // A new checkout means the room has work to do — jump to the Check Out tab.
+      if (freshIds.size && !firstLoad && listTab === "checkedin") listTab = "checkout";
     }
     seenWaiting = ids;
   }
@@ -303,19 +316,33 @@
       <div class="section-label">Room boards</div>
       <div class="rooms">${ROOMS.map((r) => `<a class="room-tile" style="text-decoration:none;color:inherit" href="?room=${r.slug}"><b>${esc(r.name)}</b><span>${esc(r.ages)}</span></a>`).join("")}</div>
       <div class="section-label">Admins</div>
-      <div class="rooms"><a class="room-tile admin" style="text-decoration:none" href="?view=overview"><b>Overview</b><span>Every checkout and confirmation today</span></a></div>`;
+      <div class="rooms"><a class="room-tile admin" style="text-decoration:none" href="?view=overview"><b>Overview</b><span>Every check-in, checkout, and confirmation today</span></a></div>`;
   }
 
   function renderRoom() {
-    const waiting = data ? data.pickups.filter((p) => !p.confirmedAt).sort((a, b) => a.checkedOutAt < b.checkedOutAt ? -1 : 1) : [];
-    const done = data ? data.pickups.filter((p) => p.confirmedAt).sort((a, b) => a.confirmedAt < b.confirmedAt ? 1 : -1) : [];
-    app.innerHTML = `
-      <header class="top">
-        <div><div class="brand">BP Kids · Room board</div><h1>${esc(room.name)}</h1><div class="sub">${esc(room.ages)}</div></div>
-      </header>
-      ${tabsHtml()}
-      ${lastError ? `<div class="banner">${esc(lastError)} — retrying…</div>` : ""}
-      ${waiting.length ? `<div class="cards">${waiting.map((p) => `
+    const checkedIn = data ? (data.checkedIn || []) : [];
+    const waiting = data ? (data.pickups || []).filter((p) => !p.confirmedAt).sort((a, b) => a.checkedOutAt < b.checkedOutAt ? -1 : 1) : [];
+    const done = data ? (data.pickups || []).filter((p) => p.confirmedAt).sort((a, b) => a.confirmedAt < b.confirmedAt ? 1 : -1) : [];
+    const subTabs = `
+      <div class="subtabs">
+        <button class="subtab ${listTab === "checkedin" ? "on" : ""}" data-listtab="checkedin">Checked In <span class="n">${checkedIn.length}</span></button>
+        <button class="subtab ${listTab === "checkout" ? "on" : ""} ${waiting.length ? "alert" : ""}" data-listtab="checkout">Check Out <span class="n">${waiting.length}</span></button>
+      </div>`;
+    let body = "";
+    if (listTab === "checkedin") {
+      body = checkedIn.length ? `<div class="cards">${checkedIn.map((p) => `
+          <div class="pick in-room">
+            <div class="label">In the room</div>
+            <div class="name">${esc(p.firstName)} ${esc(p.lastName)}</div>
+            <div class="who">
+              <div><div class="k">Parent</div><div class="v">${esc(p.parentName || "Not recorded")}</div></div>
+              <div><div class="k">Security code</div><div class="v"><span class="code">${esc(p.securityCode || "—")}</span></div></div>
+            </div>
+            <div class="meta">Checked in ${fmtTime(p.checkedInAt)} · ${ago(p.checkedInAt)}</div>
+          </div>`).join("")}</div>`
+        : `<div class="empty">${data ? "No kids checked in to this room yet." : "Loading…"}</div>`;
+    } else {
+      body = `${waiting.length ? `<div class="cards">${waiting.map((p) => `
           <div class="pick ${freshIds.has(p.id) ? "fresh" : ""}">
             <div class="name">${esc(p.firstName)} ${esc(p.lastName)}</div>
             <div class="who">
@@ -328,12 +355,24 @@
         : `<div class="empty">${data ? "No pickups waiting. New ones will pop up here with a chime." : "Loading…"}</div>`}
       ${done.length ? `<div class="section-label">Confirmed today (${done.length})</div>
         <div class="done-list">${done.map((p) => `<div class="done-row"><span><b>${esc(p.firstName)} ${esc(p.lastName)}</b> · ${esc(p.parentName || "—")} <span class="code" style="font-size:13px">${esc(p.securityCode)}</span></span><span class="t">confirmed ${fmtTime(p.confirmedAt)}</span></div>`).join("")}</div>` : ""}`;
+    }
+    app.innerHTML = `
+      <header class="top">
+        <div><div class="brand">BP Kids · Room board</div><h1>${esc(room.name)}</h1><div class="sub">${esc(room.ages)}</div></div>
+      </header>
+      ${tabsHtml()}
+      ${lastError ? `<div class="banner">${esc(lastError)} — retrying…</div>` : ""}
+      ${subTabs}
+      ${body}`;
+    app.querySelectorAll("[data-listtab]").forEach((b) => b.onclick = () => { listTab = b.dataset.listtab; render(); });
     app.querySelectorAll("[data-confirm]").forEach((b) => b.onclick = () => confirmPickup(b.dataset.confirm));
   }
 
   function renderOverview() {
-    const all = data ? data.pickups : [];
+    const all = data ? (data.pickups || []) : [];
+    const inAll = data ? (data.checkedIn || []) : [];
     const rows = filter === "all" ? all : all.filter((p) => p.room === filter);
+    const inRows = filter === "all" ? inAll : inAll.filter((p) => p.room === filter);
     const waitingCount = (list) => list.filter((p) => !p.confirmedAt).length;
     const sorted = [...rows].sort((a, b) => {
       const aw = !a.confirmedAt, bw = !b.confirmedAt;
@@ -342,11 +381,12 @@
     });
     app.innerHTML = `
       <header class="top">
-        <div><div class="brand">BP Kids · Admin overview</div><h1>Today's checkouts</h1><div class="sub">${data ? new Date(data.date + "T12:00:00").toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" }) : ""}</div></div>
+        <div><div class="brand">BP Kids · Admin overview</div><h1>Today's board</h1><div class="sub">${data ? new Date(data.date + "T12:00:00").toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" }) : ""}</div></div>
       </header>
       ${tabsHtml()}
       ${lastError ? `<div class="banner">${esc(lastError)} — retrying…</div>` : ""}
       <div class="stats">
+        <div class="stat"><div class="n">${inAll.length}</div><div class="l">Checked in now</div></div>
         <div class="stat"><div class="n">${all.length}</div><div class="l">Checked out at desk</div></div>
         <div class="stat wait"><div class="n">${waitingCount(all)}</div><div class="l">Waiting on room</div></div>
         <div class="stat ok"><div class="n">${all.length - waitingCount(all)}</div><div class="l">Confirmed by room</div></div>
@@ -365,7 +405,12 @@
             : `<span class="pill ${late ? "late" : "wait"}">Waiting · ${minsSince(p.checkedOutAt)} min</span>`;
           return `<tr><td><b>${esc(p.firstName)} ${esc(p.lastName)}</b></td><td>${esc(p.parentName || "—")}</td><td>${esc(p.roomName)}</td><td><span class="code">${esc(p.securityCode)}</span></td>
             <td>${fmtTime(p.checkedOutAt)}</td><td>${p.confirmedAt ? fmtTime(p.confirmedAt) : "—"}</td><td>${status}</td></tr>`; }).join("")}
-        </tbody></table></div>`}`;
+        </tbody></table></div>`}
+      ${!data ? "" : `<div class="section-label">Checked in now (${inRows.length})</div>
+      ${!inRows.length ? `<div class="empty">No kids checked in${filter === "all" ? "" : " to this room"} right now.</div>` : `
+      <div class="table-wrap"><table>
+        <thead><tr><th>Child</th><th>Parent</th><th>Room</th><th>Code</th><th>Checked in</th></tr></thead>
+        <tbody>${inRows.map((p) => `<tr><td><b>${esc(p.firstName)} ${esc(p.lastName)}</b></td><td>${esc(p.parentName || "—")}</td><td>${esc(p.roomName)}</td><td><span class="code">${esc(p.securityCode)}</span></td><td>${fmtTime(p.checkedInAt)} · ${ago(p.checkedInAt)}</td></tr>`).join("")}</tbody></table></div>`}`}`;
     app.querySelectorAll("[data-filter]").forEach((b) => b.onclick = () => { filter = b.dataset.filter; render(); });
     app.querySelectorAll("[data-undo]").forEach((b) => b.onclick = () => undoConfirm(b.dataset.undo));
   }
