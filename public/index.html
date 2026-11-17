@@ -57,6 +57,12 @@
   .room-tile.admin span { color: #c9ccdd; }
   .section-label { font-size: 12px; text-transform: uppercase; letter-spacing: .14em; color: var(--muted); font-weight: 800; margin: 28px 0 10px; }
 
+  /* Room tabs */
+  .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+  .tab { border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 9px 18px; font-size: 15px; font-weight: 700; color: var(--ink); text-decoration: none; }
+  .tab.on { background: var(--bp-midnight); color: #fff; border-color: var(--bp-midnight); }
+  .tab.admin-tab.on { background: var(--bp-blue); border-color: var(--bp-blue); }
+
   /* Room board */
   .empty { background: var(--card); border: 1px dashed #c3c5d4; border-radius: var(--radius); padding: 48px 20px; text-align: center; color: var(--muted); font-size: 18px; }
   .cards { display: grid; gap: 14px; }
@@ -166,7 +172,7 @@
     set(k, v) { try { localStorage.setItem(k, v); } catch {} },
     del(k) { try { localStorage.removeItem(k); } catch {} },
   };
-  const pinKey = view === "overview" ? "bpk-admin-pin" : "bpk-room-pin";
+  const pinKey = "bpk-admin-pin";
   let pin = storage.get(pinKey) || "";
 
   // ---------- sound + keep screen awake ----------
@@ -197,7 +203,7 @@
   // ---------- PIN dialog ----------
   const overlay = document.getElementById("pinOverlay");
   function askPin(message) {
-    document.getElementById("pinTitle").textContent = view === "overview" ? "Enter admin PIN" : "Enter room PIN";
+    document.getElementById("pinTitle").textContent = "Enter admin PIN";
     document.getElementById("pinErr").textContent = message || "";
     overlay.classList.remove("hidden");
     const input = document.getElementById("pinInput");
@@ -274,6 +280,13 @@
     render();
   }
 
+  // ---------- tabs ----------
+  function tabsHtml() {
+    const roomTabs = ROOMS.map((r) => `<a class="tab ${view === "room" && room && room.slug === r.slug ? "on" : ""}" href="?room=${r.slug}">${esc(r.name)}</a>`).join("");
+    const adminTab = `<a class="tab admin-tab ${view === "overview" ? "on" : ""}" href="?view=overview">Admin</a>`;
+    return `<div class="tabs">${roomTabs}${adminTab}</div>`;
+  }
+
   // ---------- rendering ----------
   function statusHtml() {
     const cls = lastError ? "err" : (data ? "live" : "");
@@ -286,6 +299,7 @@
     app.innerHTML = `
       <header class="top"><div><div class="brand">BP Kids</div><h1>Pickup Board</h1>
       <div class="sub">Open this on each room's tablet and pick that room.</div></div></header>
+      ${tabsHtml()}
       <div class="section-label">Room boards</div>
       <div class="rooms">${ROOMS.map((r) => `<a class="room-tile" style="text-decoration:none;color:inherit" href="?room=${r.slug}"><b>${esc(r.name)}</b><span>${esc(r.ages)}</span></a>`).join("")}</div>
       <div class="section-label">Admins</div>
@@ -299,9 +313,9 @@
       <header class="top">
         <div><div class="brand">BP Kids · Room board</div><h1>${esc(room.name)}</h1><div class="sub">${esc(room.ages)}</div></div>
       </header>
+      ${tabsHtml()}
       ${lastError ? `<div class="banner">${esc(lastError)} — retrying…</div>` : ""}
-      ${!started ? `<div class="empty">Tap below to start this board.<br><br><button class="confirm-btn" id="startBtn">Start ${esc(room.name)} board</button></div>` :
-        waiting.length ? `<div class="cards">${waiting.map((p) => `
+      ${waiting.length ? `<div class="cards">${waiting.map((p) => `
           <div class="pick ${freshIds.has(p.id) ? "fresh" : ""}">
             <div class="name">${esc(p.firstName)} ${esc(p.lastName)}</div>
             <div class="who">
@@ -312,10 +326,8 @@
             <div class="right"><button class="confirm-btn" data-confirm="${esc(p.id)}" ${pending.has(p.id) ? "disabled" : ""}>${pending.has(p.id) ? "Saving…" : "Confirm check out"}</button></div>
           </div>`).join("")}</div>`
         : `<div class="empty">${data ? "No pickups waiting. New ones will pop up here with a chime." : "Loading…"}</div>`}
-      ${started && done.length ? `<div class="section-label">Confirmed today (${done.length})</div>
+      ${done.length ? `<div class="section-label">Confirmed today (${done.length})</div>
         <div class="done-list">${done.map((p) => `<div class="done-row"><span><b>${esc(p.firstName)} ${esc(p.lastName)}</b> · ${esc(p.parentName || "—")} <span class="code" style="font-size:13px">${esc(p.securityCode)}</span></span><span class="t">confirmed ${fmtTime(p.confirmedAt)}</span></div>`).join("")}</div>` : ""}`;
-    const start = document.getElementById("startBtn");
-    if (start) start.onclick = () => { unlockAudio(); keepAwake(); if (!pin) askPin(); else { started = true; poll(); } };
     app.querySelectorAll("[data-confirm]").forEach((b) => b.onclick = () => confirmPickup(b.dataset.confirm));
   }
 
@@ -332,6 +344,7 @@
       <header class="top">
         <div><div class="brand">BP Kids · Admin overview</div><h1>Today's checkouts</h1><div class="sub">${data ? new Date(data.date + "T12:00:00").toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" }) : ""}</div></div>
       </header>
+      ${tabsHtml()}
       ${lastError ? `<div class="banner">${esc(lastError)} — retrying…</div>` : ""}
       <div class="stats">
         <div class="stat"><div class="n">${all.length}</div><div class="l">Checked out at desk</div></div>
@@ -374,8 +387,15 @@
   // ---------- start ----------
   if (view === "room" && !room) { location.href = "./"; return; }
   render();
+  // Room boards are open: start polling right away. The first tap anywhere
+  // unlocks the chime sound (browsers need a gesture for audio).
+  if (view === "room") {
+    started = true;
+    poll();
+    const unlockOnce = () => { unlockAudio(); keepAwake(); document.removeEventListener("pointerdown", unlockOnce); };
+    document.addEventListener("pointerdown", unlockOnce);
+  }
   if (view === "overview") { if (pin) { started = true; poll(); } else askPin(); }
-  // Room boards wait for a tap (browsers only allow sound after a tap).
 })();
 </script>
 </body>

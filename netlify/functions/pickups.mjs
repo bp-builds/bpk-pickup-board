@@ -9,8 +9,11 @@ export default async (req) => {
   const isAll = room === "all";
   if (!isAll && !ROOMS.some((r) => r.slug === room)) return json({ error: "Unknown room." }, 400);
 
-  const auth = checkPin(req, { adminOnly: isAll });
-  if (!auth.ok) return json({ error: auth.error }, auth.status);
+  // Room boards are open (no PIN). Only the admin overview (room=all) needs the admin PIN.
+  if (isAll) {
+    const auth = checkPin(req, { adminOnly: true });
+    if (!auth.ok) return json({ error: auth.error }, auth.status);
+  }
 
   try {
     const todayKey = localDateKey();

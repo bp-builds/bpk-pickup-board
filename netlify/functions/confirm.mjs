@@ -6,8 +6,11 @@ import { setConfirmation, clearConfirmation } from "../../lib/store.mjs";
 
 export default async (req) => {
   const isUndo = req.method === "DELETE";
-  const auth = checkPin(req, { adminOnly: isUndo });
-  if (!auth.ok) return json({ error: auth.error }, auth.status);
+  // Room confirm is open (no PIN). Only undo (admin) needs the admin PIN.
+  if (isUndo) {
+    const auth = checkPin(req, { adminOnly: true });
+    if (!auth.ok) return json({ error: auth.error }, auth.status);
+  }
 
   let body;
   try { body = await req.json(); } catch { return json({ error: "Bad request." }, 400); }
